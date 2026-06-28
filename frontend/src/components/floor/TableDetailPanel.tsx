@@ -6,23 +6,21 @@ import { STATUS_CONFIG } from '../../services/tableConfig'
 import type { Floor, Table, TableType } from '../../types'
 import { OccupancyTimer } from './OccupancyTimer'
 import { PrintQRButton } from './PrintQRButton'
-import { SeatGuestModal } from './SeatGuestModal'
 import { StatusActions } from './StatusActions'
 
 interface TableDetailPanelProps {
   floor: Floor
   table: Table
   onClose: () => void
+  onSeatGuests: () => void
 }
 
-export function TableDetailPanel({ floor, table, onClose }: TableDetailPanelProps) {
+export function TableDetailPanel({ floor, table, onClose, onSeatGuests }: TableDetailPanelProps) {
   const { user } = useAuth()
-  const { sessions, changeStatus, updateTable, deleteTable } = useFloor()
+  const { sessions, changeStatus, closeSession, updateTable, deleteTable } = useFloor()
   const [statusLoading, setStatusLoading] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [layoutError, setLayoutError] = useState<string | null>(null)
-  const [showSeat, setShowSeat] = useState(false)
-
   const session = sessions.find(
     (s) =>
       s.tableId === table.id &&
@@ -166,12 +164,6 @@ export function TableDetailPanel({ floor, table, onClose }: TableDetailPanelProp
         />
       </div>
 
-      {/* QR code — always visible so staff can print/share anytime */}
-      <div className="panel-section">
-        <h3>Guest QR code</h3>
-        <PrintQRButton tableId={table.id} tableNumber={table.number} />
-      </div>
-
       {editable && (
         <div className="panel-section">
           <button
@@ -195,33 +187,28 @@ export function TableDetailPanel({ floor, table, onClose }: TableDetailPanelProp
       )}
 
       <div className="panel-actions">
+        {['AVAILABLE', 'SEATED'].includes(table.status) && (
+          <PrintQRButton tableId={table.id} tableNumber={table.number} />
+        )}
         {canSeat && ['AVAILABLE', 'RESERVED'].includes(table.status) && (
           <button
             type="button"
             className="btn btn-primary btn-block"
-            onClick={() => setShowSeat(true)}
+            onClick={onSeatGuests}
           >
             Seat guests here
           </button>
         )}
-        {table.status === 'CLEANING' && (
+        {session && (
           <button
             type="button"
             className="btn btn-secondary btn-block"
-            onClick={() => handleStatus('AVAILABLE')}
-            disabled={statusLoading}
+            onClick={() => closeSession(session.id)}
           >
-            Mark as clean
+            Release table
           </button>
         )}
       </div>
-
-      {showSeat && (
-        <SeatGuestModal
-          table={table}
-          onClose={() => setShowSeat(false)}
-        />
-      )}
     </aside>
   )
 }

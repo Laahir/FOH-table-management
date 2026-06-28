@@ -54,7 +54,7 @@ export const menuApi = {
   remove: (id: string) =>
     apiFetch<void>(`/menu/items/${id}`, { method: 'DELETE' }),
   toggle: (id: string, available: boolean) =>
-    apiFetch<MenuItem>(`/menu/items/${id}`, { method: 'PATCH', body: JSON.stringify({ available }) }),
+    apiFetch<MenuItem>(`/menu/items/${id}/toggle`, { method: 'PATCH' }),
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ export const reservationsApi = {
 
 export interface AIEvent {
   id: string; tableId?: string; eventType: string
-  message: string; createdAt: string; resolved: boolean
+  message: string; targetRole?: string; createdAt: string; resolved: boolean
 }
 export interface SeatingResponse { suggestion: string; partySize: number }
 export interface ShiftReport { reportDate: string; content: string; stats: Record<string, unknown> }

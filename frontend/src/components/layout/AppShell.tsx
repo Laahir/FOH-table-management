@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { aiApi, type AIEvent } from '../../api/extensions'
 import { useAuth } from '../../context/AuthContext'
 import { useSocket } from '../../context/SocketContext'
 import { canEditFloor, canManageUsers } from '../../lib/permissions'
@@ -16,9 +18,66 @@ const NAV = [
   { to: '/users',        label: 'Team',          icon: '◎',  ownerOnly: true,  managerOnly: false },
 ] as const
 
+function AlertBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        top: -4,
+        right: -8,
+        minWidth: 18,
+        height: 18,
+        padding: '0 5px',
+        borderRadius: 9,
+        background: '#dc2626',
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: '18px',
+        textAlign: 'center',
+      }}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
 export function AppShell() {
   const { user, logout } = useAuth()
-  const { connected } = useSocket()
+  const { connected, on } = useSocket()
+  const [alertCount, setAlertCount] = useState(0)
+
+  const refreshAlertCount = useCallback(async () => {
+    if (!user || !canManageMenu(user.role)) return
+    try {
+      const alerts = await aiApi.getAlerts(false)
+      setAlertCount(alerts.length)
+    } catch {
+      /* ignore — badge stays at last count */
+    }
+  }, [user])
+
+  useEffect(() => {
+    refreshAlertCount()
+  }, [refreshAlertCount])
+
+  useEffect(() => {
+    if (!user) return
+    const unsub = on('ai_alert', (payload) => {
+      const alert = payload as AIEvent
+      if (alert.targetRole === user.role) {
+        setAlertCount((c) => c + 1)
+      }
+    })
+    return unsub
+  }, [on, user])
+
+  useEffect(() => {
+    const onDismissed = () => setAlertCount((c) => Math.max(0, c - 1))
+    window.addEventListener('foh:alert-dismissed', onDismissed)
+    return () => window.removeEventListener('foh:alert-dismissed', onDismissed)
+  }, [])
 
   return (
     <div className="app-shell">
@@ -41,7 +100,14 @@ export function AppShell() {
                 to={item.to}
                 className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               >
-                <span className="nav-item__icon" aria-hidden>{item.icon}</span>
+                <span
+                  className="nav-item__icon"
+                  aria-hidden
+                  style={item.to === '/alerts' ? { position: 'relative' } : undefined}
+                >
+                  {item.icon}
+                  {item.to === '/alerts' && <AlertBadge count={alertCount} />}
+                </span>
                 {item.label}
               </NavLink>
             )
@@ -72,6 +138,7 @@ export function AppShell() {
                 className={({ isActive }) => (isActive ? 'active' : '')}
               >
                 {item.label}
+                {item.to === '/alerts' && alertCount > 0 ? ` (${alertCount})` : ''}
               </NavLink>
             )
           })}

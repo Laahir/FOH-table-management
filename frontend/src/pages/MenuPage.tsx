@@ -21,6 +21,7 @@ export function MenuPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [filterCat, setFilterCat] = useState<string>('All')
+  const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -34,6 +35,12 @@ export function MenuPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const openAdd = () => {
     setEditingId(null)
@@ -57,6 +64,7 @@ export function MenuPage() {
   const handleSave = async () => {
     if (!form.name.trim() || !form.price) return
     setSaving(true)
+    setError('')
     try {
       const payload = {
         name: form.name.trim(),
@@ -67,13 +75,14 @@ export function MenuPage() {
         displayOrder: parseInt(form.displayOrder) || 0,
       }
       if (editingId) {
-        const updated = await menuApi.update(editingId, payload)
-        setItems((prev) => prev.map((i) => (i.id === editingId ? updated : i)))
+        await menuApi.update(editingId, payload)
+        setToast('Menu item updated')
       } else {
-        const created = await menuApi.create(payload)
-        setItems((prev) => [...prev, created])
+        await menuApi.create(payload)
+        setToast('Menu item added')
       }
       setShowForm(false)
+      await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
@@ -112,6 +121,15 @@ export function MenuPage() {
 
   return (
     <div className="menu-page" style={{ padding: '0 24px 40px' }}>
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 1000,
+          padding: '12px 16px', background: '#1e6b3c', color: '#fff',
+          borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: 14,
+        }}>
+          {toast}
+        </div>
+      )}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 20px' }}>
         <div>
           <h2 style={{ margin: 0 }}>Menu</h2>

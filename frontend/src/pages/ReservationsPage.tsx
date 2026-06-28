@@ -20,6 +20,7 @@ export function ReservationsPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -34,11 +35,18 @@ export function ReservationsPage() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   const handleCreate = async () => {
     if (!form.tableId || !form.guestName || !form.reservedFor || !form.reservedUntil) return
     setSaving(true)
+    setError('')
     try {
-      const r = await reservationsApi.create({
+      await reservationsApi.create({
         tableId: form.tableId,
         guestName: form.guestName,
         partySize: parseInt(form.partySize),
@@ -46,9 +54,10 @@ export function ReservationsPage() {
         reservedUntil: new Date(form.reservedUntil).toISOString(),
         notes: form.notes || undefined,
       })
-      setReservations((prev) => [...prev, r])
       setShowForm(false)
       setForm(EMPTY_FORM)
+      setToast('Reservation created successfully')
+      await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create')
     } finally {
@@ -78,6 +87,15 @@ export function ReservationsPage() {
 
   return (
     <div style={{ padding: '0 24px 40px' }}>
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 1000,
+          padding: '12px 16px', background: '#1e6b3c', color: '#fff',
+          borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: 14,
+        }}>
+          {toast}
+        </div>
+      )}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 20px' }}>
         <div>
           <h2 style={{ margin: 0 }}>Reservations</h2>

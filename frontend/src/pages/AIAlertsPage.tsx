@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { aiApi, type AIEvent } from '../api/extensions'
+import { useAuth } from '../context/AuthContext'
 import { useFloor } from '../context/FloorContext'
 import { useSocket } from '../context/SocketContext'
 
 export function AIAlertsPage() {
+  const { user } = useAuth()
   const { floor } = useFloor()
   const { on } = useSocket()
   const [alerts, setAlerts] = useState<AIEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [showResolved, setShowResolved] = useState(false)
   const [error, setError] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(async (resolved = false) => {
     try {
@@ -24,19 +27,28 @@ export function AIAlertsPage() {
 
   useEffect(() => { load(showResolved) }, [load, showResolved])
 
-  // Listen for new AI alerts via WebSocket
   useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 4000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  useEffect(() => {
+    if (!user) return
     const unsub = on('ai_alert', (payload) => {
       const alert = payload as AIEvent
+      if (alert.targetRole !== user.role) return
       setAlerts((prev) => [alert, ...prev])
+      setToast(alert.message)
     })
     return unsub
-  }, [on])
+  }, [on, user])
 
   const handleResolve = async (id: string) => {
     try {
       await aiApi.resolveAlert(id)
       setAlerts((prev) => prev.filter((a) => a.id !== id))
+      window.dispatchEvent(new CustomEvent('foh:alert-dismissed'))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to resolve')
     }
@@ -54,6 +66,26 @@ export function AIAlertsPage() {
 
   return (
     <div style={{ padding: '0 24px 40px' }}>
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 16,
+            right: 16,
+            zIndex: 1000,
+            maxWidth: 360,
+            padding: '12px 16px',
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: 8,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+            fontSize: 14,
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 20px' }}>
         <div>
           <h2 style={{ margin: 0 }}>AI Alerts</h2>
