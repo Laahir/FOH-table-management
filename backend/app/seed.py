@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -8,8 +9,36 @@ from app.models import DiningSession, Floor, MenuItem, Reservation, StatusHistor
 from app.seed_data import DEMO_PASSWORD, DEMO_USERS, INITIAL_FLOOR, DEMO_MENU_ITEMS
 
 
+def patch_camera_config(db: Session) -> None:
+    """Backfill camera_url + roi_coords on existing DBs seeded before Phase 2."""
+    from app.seed_data import DEMO_CAMERA_URL, _DEMO_ROIS
+
+    changed = False
+    for table in db.query(Table).all():
+        if table.id not in _DEMO_ROIS:
+            continue
+        if not table.camera_url:
+            table.camera_url = DEMO_CAMERA_URL
+            changed = True
+        if not table.roi_coords:
+            table.roi_coords = json.dumps(_DEMO_ROIS[table.id])
+            changed = True
+    if changed:
+        db.commit()
+
+
+def patch_menu_items(db: Session) -> None:
+    if db.query(MenuItem).count() > 0:
+        return
+    for item in DEMO_MENU_ITEMS:
+        db.add(MenuItem(**item, id=new_id()))
+    db.commit()
+
+
 def seed_database(db: Session) -> None:
     if db.query(User).count() > 0:
+        patch_camera_config(db)
+        patch_menu_items(db)
         return
 
     now = datetime.now(timezone.utc)
@@ -38,6 +67,10 @@ def seed_database(db: Session) -> None:
     db.add(floor)
 
     for t in INITIAL_FLOOR["tables"]:
+        cleaning_started = None
+        if t.get("status") == "CLEANING":
+            cleaning_started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        roi = t.get("roiCoords")
         table = Table(
             id=t["id"],
             floor_id=floor.id,
@@ -52,6 +85,9 @@ def seed_database(db: Session) -> None:
             width=t["width"],
             height=t["height"],
             rotation=t["rotation"],
+            camera_url=t.get("cameraUrl"),
+            roi_coords=json.dumps(roi) if roi else None,
+            cleaning_started_at=cleaning_started,
         )
         db.add(table)
         # generate a QR token for every table

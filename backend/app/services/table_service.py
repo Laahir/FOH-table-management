@@ -8,6 +8,35 @@ from app.core.status_machine import ACTIVE_SESSION_STATUSES, is_valid_transition
 from app.models import DiningSession, StatusHistory, Table
 from app.schemas.floor import CreateTableIn, TableOut, TablePatchIn
 from app.services.floor_service import get_current_floor, _table_to_out
+from app.socket_manager import sio
+
+
+def _emit_table_updated(table: Table) -> None:
+    sio.emit_sync(
+        "table_updated",
+        {
+            "id": table.id,
+            "status": table.status,
+            "floor_id": table.floor_id,
+            "number": table.number,
+        },
+        room=str(table.floor_id),
+    )
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _on_status_change(table: Table, old_status: str, new_status: str) -> None:
+    """Reset camera scan counters; stamp cleaning start time."""
+    if old_status != new_status:
+        table.consecutive_person_scans = 0
+        table.consecutive_empty_scans = 0
+    if new_status == "CLEANING":
+        table.cleaning_started_at = _iso_now()
+    elif old_status == "CLEANING" and new_status != "CLEANING":
+        table.cleaning_started_at = None
 
 
 def get_table(db: Session, table_id: str) -> Table:
@@ -52,10 +81,15 @@ def record_history(
 def update_table(db: Session, table_id: str, patch: TablePatchIn) -> TableOut:
     table = get_table(db, table_id)
     data = patch.model_dump(exclude_unset=True, by_alias=False)
+    old_status = table.status
     for key, val in data.items():
         setattr(table, key, val)
+    if "status" in data and data["status"] != old_status:
+        _on_status_change(table, old_status, data["status"])
     db.commit()
     db.refresh(table)
+    if "status" in data and data["status"] != old_status:
+        _emit_table_updated(table)
     return _table_to_out(table)
 
 
@@ -76,11 +110,13 @@ def patch_table_status(
         )
     old = table.status
     table.status = new_status
+    _on_status_change(table, old, new_status)
     if session:
         session.status = new_status
     record_history(db, table_id, old, new_status, user_id, session.id if session else None)
     db.commit()
     db.refresh(table)
+    _emit_table_updated(table)
     return _table_to_out(table)
 
 

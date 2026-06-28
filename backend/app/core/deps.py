@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core.permissions import can_edit_floor, can_manage_users
+from app.core.permissions import can_edit_floor, can_manage_menu, can_manage_reservations, can_manage_users
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.user import User
@@ -34,4 +34,22 @@ def require_floor_editor(user: User = Depends(get_current_user)) -> User:
 def require_owner(user: User = Depends(get_current_user)) -> User:
     if not can_manage_users(user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")
+    return user
+
+
+def require_manager_or_owner(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ("OWNER", "MANAGER"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or Owner access required")
+    return user
+
+
+def require_menu_manager(user: User = Depends(get_current_user)) -> User:
+    if not can_manage_menu(user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Menu management not allowed")
+    return user
+
+
+def require_reservations_access(user: User = Depends(get_current_user)) -> User:
+    if not can_manage_reservations(user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reservations access not allowed")
     return user

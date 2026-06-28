@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.ids import new_id
 from app.core.status_machine import ACTIVE_SESSION_STATUSES
-from app.models import DiningSession, Table
+from app.models import CleaningEvent, DiningSession, Table
 from app.schemas.session import DiningSessionOut, SeatGuestIn
-from app.services.table_service import active_session_for_table, get_table, record_history
+from app.services.table_service import active_session_for_table, get_table, record_history, _emit_table_updated
+from app.socket_manager import sio
 
 
 def session_to_out(session: DiningSession) -> DiningSessionOut:
@@ -63,13 +64,17 @@ def seat_guest(db: Session, payload: SeatGuestIn, host_id: str | None) -> Dining
         host_id=host_id,
     )
     table.status = "SEATED"
-    # reset consecutive scan counter when manually seated
     table.consecutive_person_scans = 0
+    table.consecutive_empty_scans = 0
     db.add(session)
     record_history(db, table.id, old_status, "SEATED", host_id, session.id)
     db.commit()
     db.refresh(session)
-    return session_to_out(session)
+    db.refresh(table)
+    _emit_table_updated(table)
+    session_out = session_to_out(session)
+    sio.emit_sync("session:created", session_out.model_dump(by_alias=True), room=str(table.floor_id))
+    return session_out
 
 
 def close_session(db: Session, session_id: str, user_id: str | None) -> DiningSessionOut:
@@ -81,9 +86,24 @@ def close_session(db: Session, session_id: str, user_id: str | None) -> DiningSe
     if table:
         old = table.status
         table.status = "CLEANING"
+        table.cleaning_started_at = now.isoformat().replace("+00:00", "Z")
+        table.consecutive_person_scans = 0
+        table.consecutive_empty_scans = 0
         record_history(db, table.id, old, "CLEANING", user_id, session.id)
+        db.add(
+            CleaningEvent(
+                id=new_id(),
+                table_id=table.id,
+                dining_session_id=session.id,
+                status="REQUESTED",
+                requested_at=now,
+            )
+        )
     session.status = "CLEANING"
     session.closed_at = now  # stamp closure time for duration queries
     db.commit()
     db.refresh(session)
+    if table:
+        db.refresh(table)
+        _emit_table_updated(table)
     return session_to_out(session)

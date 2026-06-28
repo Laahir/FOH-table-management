@@ -15,6 +15,7 @@ from app.models.bill import Bill
 from app.models.payment import Payment, PaymentTransaction
 from app.models.qr_code import TableQRCode
 from app.models.cleaning import CleaningEvent, DepartureEvent  # NEW
+from app.models.ai_event import AIEvent
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "TableQRCode",
     "CleaningEvent",
     "DepartureEvent",
+    "AIEvent",
 ]
