@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user, require_menu_manager
 from app.database import get_db
 from app.models.user import User
-from app.schemas.menu import MenuItemCreate, MenuItemOut, MenuItemPatch
+from app.schemas.menu import MenuItemCreate, MenuItemOut, MenuItemUpdate
 from app.services import menu_service
 
 router = APIRouter(prefix="/menu", tags=["menu"])
@@ -33,22 +33,13 @@ def create_menu_item(
 
 
 @router.patch("/items/{item_id}", response_model=MenuItemOut)
-def patch_menu_item(
+def update_menu_item(
     item_id: str,
-    body: MenuItemPatch,
+    body: MenuItemUpdate,
     db: Session = Depends(get_db),
     _user: User = Depends(require_menu_manager),
 ) -> MenuItemOut:
     return menu_service.update_item(db, item_id, body)
-
-
-@router.patch("/items/{item_id}/toggle", response_model=MenuItemOut)
-def toggle_menu_item(
-    item_id: str,
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_menu_manager),
-) -> MenuItemOut:
-    return menu_service.toggle_item(db, item_id)
 
 
 @router.delete("/items/{item_id}", status_code=204)
@@ -58,3 +49,12 @@ def delete_menu_item(
     _user: User = Depends(require_menu_manager),
 ) -> None:
     menu_service.delete_item(db, item_id)
+
+
+@router.patch("/items/{item_id}/toggle", response_model=MenuItemOut)
+def toggle_menu_item(
+    item_id: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_menu_manager),
+) -> MenuItemOut:
+    return menu_service.toggle_item(db, item_id)

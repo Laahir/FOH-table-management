@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_expire_hours: int = 8
     cors_origins: str = "http://localhost:5173"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:1b"
+    default_camera_url: str | None = None
+    guest_menu_base_url: str = "http://localhost:8000"
 
     # YOLO / camera pipeline
     camera_enabled: bool = True

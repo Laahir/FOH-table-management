@@ -7,8 +7,8 @@ class AIEventOut(CamelModel):
     event_type: str
     message: str
     target_role: str | None = None
-    resolved: bool
     created_at: str
+    resolved: bool
 
 
 class AIEventCreate(CamelModel):
@@ -22,12 +22,12 @@ class SeatingSuggestIn(CamelModel):
     party_size: int
 
 
-class SeatingResponseOut(CamelModel):
+class SeatingResponse(CamelModel):
     suggestion: str
     party_size: int
 
 
-class ShiftReportOut(CamelModel):
+class ShiftReport(CamelModel):
     report_date: str
     content: str
     stats: dict

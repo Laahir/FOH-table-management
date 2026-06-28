@@ -3,10 +3,10 @@ from app.schemas.common import CamelModel
 
 class OrderItemIn(CamelModel):
     menu_item_id: str
-    quantity: int
+    quantity: int = 1
 
 
-class PlaceOrderIn(CamelModel):
+class OrderCreate(CamelModel):
     table_id: str
     session_id: str | None = None
     items: list[OrderItemIn]

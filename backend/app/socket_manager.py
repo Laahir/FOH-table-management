@@ -1,7 +1,3 @@
-"""WebSocket connection manager for floor-level real-time events."""
-
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -12,49 +8,53 @@ from fastapi import WebSocket
 logger = logging.getLogger(__name__)
 
 
-class SocketManager:
+class ConnectionManager:
     def __init__(self) -> None:
-        self._rooms: dict[str, set[WebSocket]] = {}
+        self._rooms: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, floor_id: str, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, floor_id: str) -> None:
         await websocket.accept()
-        self._rooms.setdefault(floor_id, set()).add(websocket)
-        logger.debug("WS connected floor=%s (clients=%d)", floor_id, len(self._rooms[floor_id]))
+        self._rooms.setdefault(floor_id, []).append(websocket)
 
-    def disconnect(self, floor_id: str, websocket: WebSocket) -> None:
-        room = self._rooms.get(floor_id)
+    def disconnect(self, websocket: WebSocket, floor_id: str) -> None:
+        room = self._rooms.get(floor_id, [])
+        if websocket in room:
+            room.remove(websocket)
         if not room:
-            return
-        room.discard(websocket)
-        if not room:
-            del self._rooms[floor_id]
+            self._rooms.pop(floor_id, None)
 
-    async def broadcast(self, floor_id: str, event: str, data: Any) -> None:
-        room = self._rooms.get(floor_id)
-        if not room:
-            return
+    async def broadcast(self, floor_id: str, event: str, data: dict[str, Any]) -> None:
         message = json.dumps({"event": event, "data": data})
         dead: list[WebSocket] = []
-        for ws in room:
+        for ws in self._rooms.get(floor_id, []):
             try:
                 await ws.send_text(message)
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self.disconnect(floor_id, ws)
+            self.disconnect(ws, floor_id)
 
-    async def emit(self, event: str, data: Any, *, room: str) -> None:
-        await self.broadcast(room, event, data)
 
-    def emit_sync(self, event: str, data: Any, *, room: str) -> None:
-        """Broadcast from sync service code (FastAPI sync route handlers)."""
-        coro = self.broadcast(room, event, data)
+manager = ConnectionManager()
+
+
+class _SocketEmitter:
+    """Async-friendly alias used by routers and services."""
+
+    async def emit(self, event: str, data: dict[str, Any], room: str) -> None:
+        await manager.broadcast(room, event, data)
+
+
+sio = _SocketEmitter()
+
+
+def emit_sync(event: str, data: dict[str, Any], room: str) -> None:
+    """Emit a WebSocket event from synchronous service code."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(manager.broadcast(room, event, data))
+    except RuntimeError:
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(coro)
-        except RuntimeError:
-            asyncio.run(coro)
-
-
-socket_manager = SocketManager()
-sio = socket_manager
+            asyncio.run(manager.broadcast(room, event, data))
+        except Exception as exc:
+            logger.debug("WebSocket emit skipped: %s", exc)

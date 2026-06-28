@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -23,8 +23,6 @@ def table_qr_page(table_id: str, db: Session = Depends(get_db)) -> HTMLResponse:
         .first()
     )
     if not qr:
-        from fastapi import HTTPException
-
         raise HTTPException(404, "QR code not found for table")
     guest_url = f"{settings.guest_menu_base_url}/guest/menu?token={qr.token}"
     qr_img = f"https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={quote(guest_url)}"

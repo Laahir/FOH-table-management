@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from app.core.ids import new_id
 from app.models import Reservation, Table
 from app.schemas.reservation import ReservationCreate, ReservationOut
-from app.services.table_service import _emit_table_updated, record_history
+from app.services.floor_service import _table_to_out
+from app.services.table_service import record_history
+from app.socket_manager import emit_sync
 
 
 def _to_out(r: Reservation) -> ReservationOut:
@@ -25,6 +27,10 @@ def _to_out(r: Reservation) -> ReservationOut:
         status=r.status,
         notes=r.notes,
     )
+
+
+def _emit_table_updated(table: Table) -> None:
+    emit_sync("table_updated", _table_to_out(table).model_dump(by_alias=True), room=table.floor_id)
 
 
 def list_reservations(db: Session) -> list[ReservationOut]:
@@ -72,12 +78,12 @@ def release_reservation(db: Session, reservation_id: str, user_id: str | None) -
     if not reservation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reservation not found")
     table = db.get(Table, reservation.table_id)
-    reservation.status = "RELEASED"
     if table and table.status == "RESERVED":
         old = table.status
         table.status = "AVAILABLE"
         table.reserved_until = None
         record_history(db, table.id, old, "AVAILABLE", user_id)
+    reservation.status = "RELEASED"
     db.commit()
     db.refresh(reservation)
     if table:
@@ -91,7 +97,7 @@ def delete_reservation(db: Session, reservation_id: str, user_id: str | None) ->
     if not reservation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reservation not found")
     table = db.get(Table, reservation.table_id)
-    if table and table.status == "RESERVED" and reservation.status == "PENDING":
+    if table and table.status == "RESERVED":
         old = table.status
         table.status = "AVAILABLE"
         table.reserved_until = None

@@ -2,7 +2,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core.permissions import can_edit_floor, can_manage_menu, can_manage_reservations, can_manage_users
+from app.core.permissions import (
+    can_edit_floor,
+    can_manage_menu,
+    can_manage_reservations,
+    can_manage_users,
+    normalize_role,
+)
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.user import User
@@ -38,8 +44,8 @@ def require_owner(user: User = Depends(get_current_user)) -> User:
 
 
 def require_manager_or_owner(user: User = Depends(get_current_user)) -> User:
-    if user.role not in ("OWNER", "MANAGER"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager or Owner access required")
+    if normalize_role(user.role) not in ("OWNER", "MANAGER"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager access required")
     return user
 
 

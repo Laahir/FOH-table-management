@@ -20,7 +20,7 @@ class MenuItemCreate(CamelModel):
     display_order: int = 0
 
 
-class MenuItemPatch(CamelModel):
+class MenuItemUpdate(CamelModel):
     name: str | None = None
     description: str | None = None
     price: float | None = None

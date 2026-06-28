@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_reservations_access
+from app.core.deps import require_reservations_access
 from app.database import get_db
 from app.models.user import User
 from app.schemas.reservation import ReservationCreate, ReservationOut
