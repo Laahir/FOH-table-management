@@ -92,6 +92,7 @@ export interface FloorStats {
   reserved: number
   cleaning: number
   occupancyRate: number
+  avgOccupiedMinutes: number
 }
 
 export interface CreateTablePayload {

@@ -35,6 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const logoutExpired = useCallback(() => {
+    sessionStorage.setItem('foh_session_expired', '1')
+    logout()
+  }, [logout])
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password)
     localStorage.setItem('foh_access_token', res.accessToken)
@@ -64,10 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (user && isTokenExpired()) logout()
+      if (user && isTokenExpired()) logoutExpired()
     }, 60_000)
     return () => clearInterval(interval)
-  }, [user, logout])
+  }, [user, logoutExpired])
 
   const value = useMemo(
     () => ({ user, loading, login, logout }),

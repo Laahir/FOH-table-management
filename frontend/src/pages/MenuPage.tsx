@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { menuApi, type MenuItem } from '../api/extensions'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { humanizeApiError } from '../lib/apiErrors'
 
 const CATEGORIES = ['Starters', 'Mains', 'Drinks', 'Desserts']
 
@@ -22,13 +25,16 @@ export function MenuPage() {
   const [saving, setSaving] = useState(false)
   const [filterCat, setFilterCat] = useState<string>('All')
   const [toast, setToast] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
     try {
       const data = await menuApi.list()
       setItems(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load menu')
+      setError(humanizeApiError(e))
     } finally {
       setLoading(false)
     }
@@ -91,12 +97,12 @@ export function MenuPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Remove this item from the menu?')) return
     try {
       await menuApi.remove(id)
       setItems((prev) => prev.filter((i) => i.id !== id))
+      setDeleteTarget(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed')
+      setError(humanizeApiError(e))
     }
   }
 
@@ -198,7 +204,7 @@ export function MenuPage() {
                     {item.available ? 'Available' : 'Off'}
                   </button>
                   <button type="button" onClick={() => openEdit(item)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', fontSize: 12, cursor: 'pointer' }}>Edit</button>
-                  <button type="button" onClick={() => handleDelete(item.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fcc', background: '#fff', color: '#c00', fontSize: 12, cursor: 'pointer' }}>Remove</button>
+                  <button type="button" onClick={() => setDeleteTarget(item.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fcc', background: '#fff', color: '#c00', fontSize: 12, cursor: 'pointer' }}>Remove</button>
                 </div>
               </div>
             ))}
@@ -207,13 +213,17 @@ export function MenuPage() {
       ))}
 
       {filtered.length === 0 && !loading && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#888' }}>
-          <p style={{ fontSize: 16 }}>No menu items yet</p>
-          <p style={{ fontSize: 13 }}>Click "Add item" to create your first menu item</p>
-        </div>
+        <EmptyState icon="🍽" title="No menu items yet." message='Click "Add item" to create your first menu item.' />
       )}
 
-      {/* Add/Edit modal */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        message="Remove this item from the menu?"
+        confirmLabel="Remove"
+        onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>

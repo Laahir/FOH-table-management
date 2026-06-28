@@ -5,6 +5,14 @@
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
+function humanizeStatus(status: number, detail?: string): string {
+  if (status === 401) return 'Your session has expired. Please log in again.'
+  if (status === 403) return 'You do not have permission to do this.'
+  if (status === 404) return 'The requested item was not found.'
+  if (status === 500) return 'Something went wrong. Please try again.'
+  return detail ?? 'Something went wrong. Please try again.'
+}
+
 function getToken(): string | null {
   return localStorage.getItem('foh_access_token')
 }
@@ -21,12 +29,15 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   })
   if (res.status === 401) {
     localStorage.removeItem('foh_access_token')
+    localStorage.removeItem('foh_token_expires')
+    sessionStorage.setItem('foh_session_expired', '1')
     window.location.href = '/login'
-    throw new Error('Unauthorized')
+    throw new Error('Your session has expired. Please log in again.')
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? res.statusText)
+    const detail = typeof body.detail === 'string' ? body.detail : undefined
+    throw new Error(humanizeStatus(res.status, detail))
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -53,7 +64,7 @@ export const menuApi = {
     apiFetch<MenuItem>(`/menu/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   remove: (id: string) =>
     apiFetch<void>(`/menu/items/${id}`, { method: 'DELETE' }),
-  toggle: (id: string, available: boolean) =>
+  toggle: (id: string, _available: boolean) =>
     apiFetch<MenuItem>(`/menu/items/${id}/toggle`, { method: 'PATCH' }),
 }
 

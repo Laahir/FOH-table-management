@@ -15,6 +15,7 @@ import type {
   TableStatus,
   User,
 } from '../types'
+import { humanizeApiError } from '../lib/apiErrors'
 import * as mock from '../mock/store'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
@@ -44,12 +45,15 @@ function pointsToBounds(points: { x: number; y: number }[]): RectBounds {
 function normalizeFloor(floor: Floor & { sections?: ApiSection[] }): Floor {
   return {
     ...floor,
-    sections: (floor.sections ?? []).map((s) => ({
-      id: s.id,
-      name: s.name,
-      color: s.color,
-      bounds: s.bounds ?? (s.points?.length ? pointsToBounds(s.points) : { x: 0, y: 0, width: 100, height: 100 }),
-    })),
+    sections: (floor.sections ?? []).map((s) => {
+      const sec = s as ApiSection
+      return {
+        id: sec.id,
+        name: sec.name,
+        color: sec.color,
+        bounds: sec.bounds ?? (sec.points?.length ? pointsToBounds(sec.points) : { x: 0, y: 0, width: 100, height: 100 }),
+      }
+    }),
   }
 }
 
@@ -73,12 +77,14 @@ async function apiFetch<T>(
   if (res.status === 401) {
     localStorage.removeItem('foh_access_token')
     localStorage.removeItem('foh_token_expires')
+    sessionStorage.setItem('foh_session_expired', '1')
     window.location.href = '/login'
-    throw new Error('Unauthorized')
+    throw new Error('Your session has expired. Please log in again.')
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    const err = new Error(body.detail ?? res.statusText)
+    const detail = typeof body.detail === 'string' ? body.detail : undefined
+    const err = new Error(humanizeApiError(null, res.status) || detail || res.statusText)
     ;(err as Error & { status: number }).status = res.status
     throw err
   }

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { reservationsApi, type Reservation } from '../api/extensions'
+import { ReleaseCountdown } from '../components/reservations/ReleaseCountdown'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { humanizeApiError } from '../lib/apiErrors'
 import { useFloor } from '../context/FloorContext'
 
 interface FormState {
@@ -21,13 +25,16 @@ export function ReservationsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [releaseTarget, setReleaseTarget] = useState<{ id: string; guestName: string } | null>(null)
 
   const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
     try {
       const data = await reservationsApi.list()
       setReservations(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load')
+      setError(humanizeApiError(e))
     } finally {
       setLoading(false)
     }
@@ -65,13 +72,13 @@ export function ReservationsPage() {
     }
   }
 
-  const handleRelease = async (id: string, guestName: string) => {
-    if (!confirm(`Release reservation for ${guestName}?`)) return
+  const handleRelease = async (id: string) => {
     try {
       const updated = await reservationsApi.release(id)
       setReservations((prev) => prev.map((r) => (r.id === id ? updated : r)))
+      setReleaseTarget(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to release')
+      setError(humanizeApiError(e))
     }
   }
 
@@ -105,16 +112,14 @@ export function ReservationsPage() {
       </div>
 
       {error && (
-        <div style={{ background: '#fee', border: '1px solid #fcc', borderRadius: 8, padding: '10px 16px', marginBottom: 16, color: '#c00' }}>
-          {error} <button style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setError('')}>✕</button>
+        <div style={{ background: '#fee', border: '1px solid #fcc', borderRadius: 8, padding: '10px 16px', marginBottom: 16, color: '#c00', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{error}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => load()}>Retry</button>
         </div>
       )}
 
       {reservations.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#888' }}>
-          <p style={{ fontSize: 16 }}>No reservations yet</p>
-          <p style={{ fontSize: 13 }}>Click "New reservation" to hold a table for a future booking</p>
-        </div>
+        <EmptyState icon="📅" title="No upcoming reservations." message='Click "New reservation" to hold a table.' />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[...reservations]
@@ -145,14 +150,19 @@ export function ReservationsPage() {
                       }}>{r.status}</span>
                     </div>
                     <p style={{ margin: '3px 0 0', fontSize: 12, color: '#888' }}>
-                      {new Date(r.reservedFor).toLocaleString()} → auto-release at {new Date(r.reservedUntil).toLocaleTimeString()}
+                      Arrives {new Date(r.reservedFor).toLocaleString()}
                     </p>
+                    {r.status === 'PENDING' && (
+                      <p style={{ margin: '2px 0 0', fontSize: 12 }}>
+                        <ReleaseCountdown until={r.reservedUntil} />
+                      </p>
+                    )}
                     {r.notes && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#aaa' }}>{r.notes}</p>}
                   </div>
                   {r.status === 'PENDING' && (
                     <button
                       type="button"
-                      onClick={() => handleRelease(r.id, r.guestName)}
+                      onClick={() => setReleaseTarget({ id: r.id, guestName: r.guestName })}
                       style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', fontSize: 12, cursor: 'pointer' }}
                     >
                       Release
@@ -163,6 +173,14 @@ export function ReservationsPage() {
             })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!releaseTarget}
+        message={`Release reservation for ${releaseTarget?.guestName ?? 'this guest'}? The table will become available.`}
+        confirmLabel="Release"
+        onConfirm={() => releaseTarget && handleRelease(releaseTarget.id)}
+        onCancel={() => setReleaseTarget(null)}
+      />
 
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

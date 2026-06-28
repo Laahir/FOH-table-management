@@ -15,7 +15,9 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('host@foh.demo')
   const [password, setPassword] = useState(DEMO_PASSWORD)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    sessionStorage.getItem('foh_session_expired') ? 'Your session expired. Please log in.' : null,
+  )
   const [loading, setLoading] = useState(false)
 
   if (user) return <Navigate to="/floor" replace />
@@ -24,6 +26,7 @@ export function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    sessionStorage.removeItem('foh_session_expired')
     try {
       await login(email, password)
       navigate('/floor')

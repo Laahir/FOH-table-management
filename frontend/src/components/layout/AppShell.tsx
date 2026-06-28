@@ -1,22 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { aiApi, type AIEvent } from '../../api/extensions'
+import { ToastStack } from '../ui/ToastStack'
 import { useAuth } from '../../context/AuthContext'
 import { useSocket } from '../../context/SocketContext'
+import { shouldCountAlertBadge, shouldShowAlertToast } from '../../lib/alertRules'
 import { canEditFloor, canManageUsers } from '../../lib/permissions'
+import type { Role } from '../../types'
 
-function canManageMenu(role: string) { return role === 'OWNER' || role === 'MANAGER' }
-function canViewReports(role: string) { return role === 'OWNER' || role === 'MANAGER' }
+function canManageMenu(role: Role) { return role === 'OWNER' || role === 'MANAGER' }
+function canViewReports(role: Role) { return role === 'OWNER' || role === 'MANAGER' }
 
-const NAV = [
-  { to: '/floor',        label: 'Floor plan',    icon: '◫',  ownerOnly: false, managerOnly: false },
-  { to: '/sessions',     label: 'Sessions',      icon: '☰',  ownerOnly: false, managerOnly: false },
-  { to: '/reservations', label: 'Reservations',  icon: '📅', ownerOnly: false, managerOnly: false },
-  { to: '/menu',         label: 'Menu',          icon: '🍽',  ownerOnly: false, managerOnly: true  },
-  { to: '/alerts',       label: 'AI Alerts',     icon: '🔔', ownerOnly: false, managerOnly: true  },
-  { to: '/reports',      label: 'Reports',       icon: '📊', ownerOnly: false, managerOnly: true  },
-  { to: '/users',        label: 'Team',          icon: '◎',  ownerOnly: true,  managerOnly: false },
-] as const
+const NAV: Array<{
+  to: string
+  label: string
+  icon: string
+  ownerOnly?: boolean
+  menuOnly?: boolean
+  reportsOnly?: boolean
+}> = [
+  { to: '/floor',        label: 'Floor plan',    icon: '◫' },
+  { to: '/sessions',     label: 'Sessions',      icon: '☰' },
+  { to: '/reservations', label: 'Reservations',  icon: '📅' },
+  { to: '/menu',         label: 'Menu',          icon: '🍽',  menuOnly: true },
+  { to: '/alerts',       label: 'AI Alerts',     icon: '🔔' },
+  { to: '/reports',      label: 'Reports',       icon: '📊',  reportsOnly: true },
+  { to: '/users',        label: 'Team',          icon: '◎',  ownerOnly: true },
+]
 
 function AlertBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -43,35 +53,52 @@ function AlertBadge({ count }: { count: number }) {
   )
 }
 
+interface ToastItem { id: string; message: string; variant?: 'default' | 'error' }
+
 export function AppShell() {
   const { user, logout } = useAuth()
   const { connected, on } = useSocket()
   const [alertCount, setAlertCount] = useState(0)
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  const pushToast = useCallback((message: string, ms = 5000, variant: 'default' | 'error' = 'default') => {
+    const id = crypto.randomUUID()
+    setToasts((prev) => [...prev, { id, message, variant }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ms)
+  }, [])
 
   const refreshAlertCount = useCallback(async () => {
-    if (!user || !canManageMenu(user.role)) return
+    if (!user) return
     try {
       const alerts = await aiApi.getAlerts(false)
       setAlertCount(alerts.length)
     } catch {
-      /* ignore — badge stays at last count */
+      /* keep last count */
     }
   }, [user])
 
-  useEffect(() => {
-    refreshAlertCount()
-  }, [refreshAlertCount])
+  useEffect(() => { refreshAlertCount() }, [refreshAlertCount])
 
   useEffect(() => {
     if (!user) return
-    const unsub = on('ai_alert', (payload) => {
+    const unsubAlert = on('ai_alert', (payload) => {
       const alert = payload as AIEvent
-      if (alert.targetRole === user.role) {
+      if (!shouldShowAlertToast(alert.eventType, user.role)) return
+      if (shouldCountAlertBadge(alert.eventType, user.role)) {
         setAlertCount((c) => c + 1)
       }
+      pushToast(alert.message, 5000)
+      window.dispatchEvent(new CustomEvent('foh:ai-alert', { detail: alert }))
     })
-    return unsub
-  }, [on, user])
+    const unsubOrder = on('order_placed', (payload) => {
+      const data = payload as { tableNumber?: string; itemCount?: number }
+      if (user.role !== 'WAITER' && user.role !== 'HOST') return
+      const num = data.tableNumber ?? '?'
+      const count = data.itemCount ?? 0
+      pushToast(`New order at Table ${num} — ${count} items`, 6000)
+    })
+    return () => { unsubAlert(); unsubOrder() }
+  }, [on, user, pushToast])
 
   useEffect(() => {
     const onDismissed = () => setAlertCount((c) => Math.max(0, c - 1))
@@ -79,8 +106,17 @@ export function AppShell() {
     return () => window.removeEventListener('foh:alert-dismissed', onDismissed)
   }, [])
 
+  const showNavItem = (item: typeof NAV[number]) => {
+    if (!user) return false
+    if (item.ownerOnly && !canManageUsers(user.role)) return false
+    if (item.menuOnly && !canManageMenu(user.role)) return false
+    if (item.reportsOnly && !canViewReports(user.role)) return false
+    return true
+  }
+
   return (
     <div className="app-shell">
+      <ToastStack toasts={toasts} />
       <aside className="app-sidebar">
         <div className="sidebar-brand">
           <span className="brand-mark">FOH</span>
@@ -91,27 +127,23 @@ export function AppShell() {
         </div>
 
         <nav className="app-nav" aria-label="Main">
-          {NAV.map((item) => {
-            if (item.ownerOnly && (!user || !canManageUsers(user.role))) return null
-            if (item.managerOnly && (!user || !canManageMenu(user.role))) return null
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          {NAV.filter(showNavItem).map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <span
+                className="nav-item__icon"
+                aria-hidden
+                style={item.to === '/alerts' ? { position: 'relative' } : undefined}
               >
-                <span
-                  className="nav-item__icon"
-                  aria-hidden
-                  style={item.to === '/alerts' ? { position: 'relative' } : undefined}
-                >
-                  {item.icon}
-                  {item.to === '/alerts' && <AlertBadge count={alertCount} />}
-                </span>
-                {item.label}
-              </NavLink>
-            )
-          })}
+                {item.icon}
+                {item.to === '/alerts' && <AlertBadge count={alertCount} />}
+              </span>
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
 
         {user && canEditFloor(user.role) && (
@@ -128,20 +160,16 @@ export function AppShell() {
 
       <div className="app-content">
         <nav className="mobile-nav" aria-label="Mobile">
-          {NAV.map((item) => {
-            if (item.ownerOnly && (!user || !canManageUsers(user.role))) return null
-            if (item.managerOnly && (!user || !canManageMenu(user.role))) return null
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) => (isActive ? 'active' : '')}
-              >
-                {item.label}
-                {item.to === '/alerts' && alertCount > 0 ? ` (${alertCount})` : ''}
-              </NavLink>
-            )
-          })}
+          {NAV.filter(showNavItem).map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              {item.label}
+              {item.to === '/alerts' && alertCount > 0 ? ` (${alertCount})` : ''}
+            </NavLink>
+          ))}
         </nav>
         <header className="app-topbar">
           <div className="topbar-title">

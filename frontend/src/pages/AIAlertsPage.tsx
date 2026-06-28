@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useState } from 'react'
 import { aiApi, type AIEvent } from '../api/extensions'
+import { EmptyState } from '../components/ui/EmptyState'
+import { shouldShowAlertToast } from '../lib/alertRules'
+import { humanizeApiError } from '../lib/apiErrors'
 import { useAuth } from '../context/AuthContext'
 import { useFloor } from '../context/FloorContext'
-import { useSocket } from '../context/SocketContext'
 
 export function AIAlertsPage() {
   const { user } = useAuth()
   const { floor } = useFloor()
-  const { on } = useSocket()
   const [alerts, setAlerts] = useState<AIEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [showResolved, setShowResolved] = useState(false)
   const [error, setError] = useState('')
-  const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(async (resolved = false) => {
+    setLoading(true)
+    setError('')
     try {
       const data = await aiApi.getAlerts(resolved)
       setAlerts(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load alerts')
+      setError(humanizeApiError(e))
     } finally {
       setLoading(false)
     }
@@ -28,21 +30,19 @@ export function AIAlertsPage() {
   useEffect(() => { load(showResolved) }, [load, showResolved])
 
   useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 4000)
-    return () => clearTimeout(t)
-  }, [toast])
-
-  useEffect(() => {
     if (!user) return
-    const unsub = on('ai_alert', (payload) => {
-      const alert = payload as AIEvent
-      if (alert.targetRole !== user.role) return
-      setAlerts((prev) => [alert, ...prev])
-      setToast(alert.message)
-    })
-    return unsub
-  }, [on, user])
+    const onAlert = (e: Event) => {
+      const alert = (e as CustomEvent<AIEvent>).detail
+      if (!shouldShowAlertToast(alert.eventType, user.role)) return
+      if (showResolved) return
+      setAlerts((prev) => {
+        if (prev.some((a) => a.id === alert.id)) return prev
+        return [alert, ...prev]
+      })
+    }
+    window.addEventListener('foh:ai-alert', onAlert)
+    return () => window.removeEventListener('foh:ai-alert', onAlert)
+  }, [user, showResolved])
 
   const handleResolve = async (id: string) => {
     try {
@@ -50,7 +50,7 @@ export function AIAlertsPage() {
       setAlerts((prev) => prev.filter((a) => a.id !== id))
       window.dispatchEvent(new CustomEvent('foh:alert-dismissed'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to resolve')
+      setError(humanizeApiError(e))
     }
   }
 
@@ -66,61 +66,34 @@ export function AIAlertsPage() {
 
   return (
     <div style={{ padding: '0 24px 40px' }}>
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 16,
-            right: 16,
-            zIndex: 1000,
-            maxWidth: 360,
-            padding: '12px 16px',
-            background: '#1e293b',
-            color: '#fff',
-            borderRadius: 8,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-            fontSize: 14,
-          }}
-        >
-          {toast}
-        </div>
-      )}
-
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 20px' }}>
         <div>
           <h2 style={{ margin: 0 }}>AI Alerts</h2>
-          <p className="muted" style={{ margin: '4px 0 0' }}>Llama monitors tables and fires alerts automatically</p>
+          <p className="muted" style={{ margin: '4px 0 0' }}>Real-time alerts for your role</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            className={`filter-chip ${!showResolved ? 'active' : ''}`}
-            onClick={() => setShowResolved(false)}
-          >
-            Active ({alerts.filter(a => !a.resolved).length})
+          <button type="button" className={`filter-chip ${!showResolved ? 'active' : ''}`} onClick={() => setShowResolved(false)}>
+            Active ({alerts.filter((a) => !a.resolved).length})
           </button>
-          <button
-            type="button"
-            className={`filter-chip ${showResolved ? 'active' : ''}`}
-            onClick={() => setShowResolved(true)}
-          >
+          <button type="button" className={`filter-chip ${showResolved ? 'active' : ''}`} onClick={() => setShowResolved(true)}>
             Resolved
           </button>
         </div>
       </div>
 
       {error && (
-        <div style={{ background: '#fee', border: '1px solid #fcc', borderRadius: 8, padding: '10px 16px', marginBottom: 16, color: '#c00' }}>
-          {error}
+        <div style={{ background: '#fee', border: '1px solid #fcc', borderRadius: 8, padding: '10px 16px', marginBottom: 16, color: '#c00', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{error}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => load(showResolved)}>Retry</button>
         </div>
       )}
 
       {alerts.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#888' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>✓</div>
-          <p style={{ fontSize: 16 }}>No active alerts</p>
-          <p style={{ fontSize: 13 }}>Llama checks every 2 minutes — you'll see alerts here when tables need attention</p>
-        </div>
+        <EmptyState
+          icon="✓"
+          title={showResolved ? 'No resolved alerts' : 'No active alerts. All tables are running smoothly.'}
+          message={showResolved ? undefined : 'New alerts appear here in real time.'}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {alerts.map((alert) => {
@@ -134,32 +107,21 @@ export function AIAlertsPage() {
               }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-                      background: style.bg, color: style.color,
-                    }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: style.bg, color: style.color }}>
                       {style.label}
                     </span>
-                    {table && (
-                      <span style={{ fontSize: 12, color: '#666' }}>Table {table.number}</span>
-                    )}
+                    {table && <span style={{ fontSize: 12, color: '#666' }}>Table {table.number}</span>}
                     <span style={{ fontSize: 11, color: '#aaa', marginLeft: 'auto' }}>
                       {new Date(alert.createdAt).toLocaleTimeString()}
                     </span>
                   </div>
-                  <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#333' }}>
-                    {alert.message}
-                  </p>
+                  <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#333' }}>{alert.message}</p>
                 </div>
                 {!alert.resolved && (
                   <button
                     type="button"
                     onClick={() => handleResolve(alert.id)}
-                    style={{
-                      padding: '6px 12px', borderRadius: 6, border: '1px solid #ddd',
-                      background: '#fff', fontSize: 12, cursor: 'pointer',
-                      alignSelf: 'flex-start', whiteSpace: 'nowrap',
-                    }}
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', fontSize: 12, cursor: 'pointer', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}
                   >
                     Dismiss
                   </button>

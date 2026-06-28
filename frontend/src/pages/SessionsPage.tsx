@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useFloor } from '../context/FloorContext'
 import { SessionCard } from '../components/sessions/SessionCard'
+import { EmptyState } from '../components/ui/EmptyState'
 
 type Filter = 'ACTIVE' | 'ALL' | 'CLOSED'
 
 export function SessionsPage() {
-  const { floor, sessions, loading, changeStatus, closeSession } = useFloor()
+  const { floor, sessions, loading, changeStatus, closeSession, refresh } = useFloor()
   const [filter, setFilter] = useState<Filter>('ACTIVE')
   const [search, setSearch] = useState('')
 
@@ -40,6 +41,7 @@ export function SessionsPage() {
     return (
       <div className="page-loading">
         <div className="spinner" />
+        <p>Loading sessions…</p>
       </div>
     )
   }
@@ -49,7 +51,7 @@ export function SessionsPage() {
       <div className="page-header">
         <div>
           <h2>Sessions</h2>
-          <p className="muted">Track guests and advance tables through service</p>
+          <p className="muted">Track guests, orders, and billing</p>
         </div>
       </div>
 
@@ -84,12 +86,7 @@ export function SessionsPage() {
               ['ALL', `All (${counts.all})`],
             ] as const
           ).map(([f, label]) => (
-            <button
-              key={f}
-              type="button"
-              className={`filter-chip ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
+            <button key={f} type="button" className={`filter-chip ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
               {label}
             </button>
           ))}
@@ -97,17 +94,16 @@ export function SessionsPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="sessions-empty">
-          <p>No sessions match this view.</p>
-          <p className="muted">Seat guests from the Floor plan page.</p>
-        </div>
+        <EmptyState
+          icon="☰"
+          title={filter === 'ACTIVE' ? 'No active sessions right now.' : 'No sessions match this view.'}
+          message="Seat guests from the Floor plan page."
+        />
       ) : (
         <div className="sessions-list">
           {filtered.map((session) => {
             const table = floor?.tables.find((t) => t.id === session.tableId)
-            const section = table
-              ? floor?.sections.find((s) => s.id === table.sectionId)
-              : undefined
+            const section = table ? floor?.sections.find((s) => s.id === table.sectionId) : undefined
             return (
               <SessionCard
                 key={session.id}
@@ -116,6 +112,7 @@ export function SessionsPage() {
                 sectionName={section?.name}
                 onAdvance={(tableId, status) => changeStatus(tableId, status)}
                 onRelease={closeSession}
+                onRefresh={refresh}
               />
             )
           })}
