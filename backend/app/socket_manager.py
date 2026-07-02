@@ -38,18 +38,13 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-class _SocketEmitter:
-    """Async-friendly alias used by routers and services."""
-
-    async def emit(self, event: str, data: dict[str, Any], room: str) -> None:
-        await manager.broadcast(room, event, data)
-
-
-sio = _SocketEmitter()
-
-
 def emit_sync(event: str, data: dict[str, Any], room: str) -> None:
-    """Emit a WebSocket event from synchronous service code."""
+    """Emit a WebSocket event from synchronous service code.
+
+    Routes through the single shared ``manager`` instance so every caller —
+    whether it uses ``sio.emit_sync`` or the module-level ``emit_sync`` —
+    reaches the exact same connected clients.
+    """
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(manager.broadcast(room, event, data))
@@ -58,3 +53,21 @@ def emit_sync(event: str, data: dict[str, Any], room: str) -> None:
             asyncio.run(manager.broadcast(room, event, data))
         except Exception as exc:
             logger.debug("WebSocket emit skipped: %s", exc)
+
+
+class _SocketEmitter:
+    """Emitter facade over the shared ``manager`` instance.
+
+    Exposes both an async ``emit`` and a synchronous ``emit_sync`` so callers
+    in either context hit the same rooms. There is only ONE ``manager`` and
+    ONE ``sio`` in the process — no duplicate instances.
+    """
+
+    async def emit(self, event: str, data: dict[str, Any], room: str) -> None:
+        await manager.broadcast(room, event, data)
+
+    def emit_sync(self, event: str, data: dict[str, Any], room: str) -> None:
+        emit_sync(event, data, room)
+
+
+sio = _SocketEmitter()
