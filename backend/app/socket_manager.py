@@ -11,9 +11,14 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self) -> None:
         self._rooms: dict[str, list[WebSocket]] = {}
+        # The event loop that owns the WebSocket connections (uvicorn's main
+        # loop). Captured on connect so sync/threadpool code can schedule
+        # broadcasts onto the correct loop instead of a throw-away one.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def connect(self, websocket: WebSocket, floor_id: str) -> None:
         await websocket.accept()
+        self._loop = asyncio.get_running_loop()
         self._rooms.setdefault(floor_id, []).append(websocket)
 
     def disconnect(self, websocket: WebSocket, floor_id: str) -> None:
@@ -44,15 +49,38 @@ def emit_sync(event: str, data: dict[str, Any], room: str) -> None:
     Routes through the single shared ``manager`` instance so every caller —
     whether it uses ``sio.emit_sync`` or the module-level ``emit_sync`` —
     reaches the exact same connected clients.
+
+    FastAPI runs sync (``def``) endpoints in a threadpool, so this is usually
+    called from a worker thread with NO running loop. The WebSocket objects,
+    however, live on uvicorn's main loop. We must therefore hand the coroutine
+    to that main loop via ``run_coroutine_threadsafe`` — spinning up a new loop
+    with ``asyncio.run`` would try to drive sockets bound to another loop and
+    silently fail (the old bug).
     """
+    print(f"[WS] emit_sync called: event={event} room={room}")
+    coro = manager.broadcast(room, event, data)
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(manager.broadcast(room, event, data))
+        running = asyncio.get_running_loop()
     except RuntimeError:
-        try:
-            asyncio.run(manager.broadcast(room, event, data))
-        except Exception as exc:
-            logger.debug("WebSocket emit skipped: %s", exc)
+        running = None
+
+    if running is not None:
+        # Already on an event loop (async caller) — schedule directly.
+        running.create_task(coro)
+        return
+
+    main_loop = manager._loop
+    if main_loop is None:
+        # No client has ever connected, so there is nothing to broadcast to.
+        coro.close()
+        logger.debug("WebSocket emit skipped: no active loop/connections")
+        return
+
+    try:
+        asyncio.run_coroutine_threadsafe(coro, main_loop)
+    except Exception as exc:
+        coro.close()
+        logger.debug("WebSocket emit skipped: %s", exc)
 
 
 class _SocketEmitter:

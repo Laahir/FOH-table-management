@@ -47,6 +47,7 @@ async def websocket_endpoint(
         await websocket.close(code=1008)
         return
     await manager.connect(websocket, floor_id)
+    print(f"[WS] client joined room: {floor_id} (user={user.role})")
     try:
         while True:
             await websocket.receive_text()
