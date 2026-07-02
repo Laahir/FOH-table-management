@@ -30,13 +30,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     const url = `${SOCKET_URL}/ws/${floorId}${token ? `?token=${token}` : ''}`
     const ws = new WebSocket(url)
     wsRef.current = ws
-    ws.onopen = () => setConnected(true)
+    ws.onopen = () => { console.log('[WS] connected to', url); setConnected(true) }
     ws.onclose = () => {
       setConnected(false)
       setTimeout(() => connect(floorIdRef.current), 3000)
     }
     ws.onerror = () => setConnected(false)
     ws.onmessage = (e) => {
+      console.log('[WS] message received:', e.data)
       try { const { event, data } = JSON.parse(e.data); emit(event, data) } catch { /* ignore */ }
     }
   }, [emit])
